@@ -311,13 +311,13 @@ export default function SwayamChatPage() {
   };
 
   return (
-    <SidebarProvider defaultOpen={true}>
-      <div className="flex h-screen max-h-screen bg-background text-foreground overflow-hidden antialiased">
+    <SidebarProvider defaultOpen={true} className=''>
+      <div className="flex max-w-screen w-screen  h-screen max-h-screen bg-background text-foreground overflow-hidden antialiased">
         <Sidebar collapsible="offcanvas" side="left" className="border-r border-border shadow-lg">
-          <SidebarHeader className="p-6">
-            <div className="flex items-center space-x-3">
+          <SidebarHeader className="py-3">
+            <div className="flex items-center space-x-2">
               <Bot size={32} className="text-primary" />
-              <h1 className="text-3xl font-headline font-bold text-primary">InterviewBot</h1>
+              <h1 className="md:text-2xl text-xl font-headline font-bold text-primary">InterviewBot</h1>
             </div>
           </SidebarHeader>
           <Separator />
@@ -446,7 +446,7 @@ export default function SwayamChatPage() {
         </Sidebar>
 
         <SidebarInset>
-          <div className="flex-1 flex flex-col overflow-hidden">
+          <div className="flex-1 w-full flex flex-col overflow-hidden">
             <div className="p-3 border-b border-border bg-card/80 backdrop-blur-sm">
                 <SidebarTrigger className="h-8 w-8">
                     <PanelLeft size={18}/>
