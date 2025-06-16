@@ -19,7 +19,7 @@ import ChatMessage from '@/components/chat/ChatMessage';
 import ChatInput from '@/components/chat/ChatInput';
 import LoadingIndicator from '@/components/chat/LoadingIndicator';
 import { generateSwayamResponse, type GenerateSwayamResponseInput } from '@/ai/flows/generate-response';
-import { Bot, Settings, MessageSquareDashed, Volume2, Voicemail } from 'lucide-react';
+import { Bot, Settings, MessageSquareDashed, Volume2, Voicemail, Mic as MicIcon, Info } from 'lucide-react';
 
 type Message = {
   id: string;
@@ -43,6 +43,13 @@ const voiceToneOptions = [
   { value: 'reflective', label: 'Reflective' },
 ];
 
+declare global {
+  interface Window {
+    SpeechRecognition: any;
+    webkitSpeechRecognition: any;
+  }
+}
+
 export default function SwayamChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [userInput, setUserInput] = useState('');
@@ -53,6 +60,11 @@ export default function SwayamChatPage() {
   const [selectedVoiceURI, setSelectedVoiceURI] = useState<string>('default');
   const [voiceOptions, setVoiceOptions] = useState<VoiceOption[]>([{ value: 'default', label: 'Default (Browser)' }]);
 
+  const [isListening, setIsListening] = useState(false);
+  const [isSpeechRecognitionSupported, setIsSpeechRecognitionSupported] = useState(false);
+  const recognitionRef = useRef<any>(null);
+
+
   const { toast } = useToast();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const speechSynthesisRef = useRef<SpeechSynthesis | null>(null);
@@ -60,14 +72,64 @@ export default function SwayamChatPage() {
   useEffect(() => {
     if (typeof window !== 'undefined') {
       speechSynthesisRef.current = window.speechSynthesis;
+
+      const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (SpeechRecognitionAPI) {
+        setIsSpeechRecognitionSupported(true);
+        recognitionRef.current = new SpeechRecognitionAPI();
+        recognitionRef.current.continuous = false;
+        recognitionRef.current.interimResults = true;
+        recognitionRef.current.lang = 'en-US';
+
+        recognitionRef.current.onresult = (event: any) => {
+          let interimTranscript = '';
+          let finalTranscript = '';
+          for (let i = event.resultIndex; i < event.results.length; ++i) {
+            if (event.results[i].isFinal) {
+              finalTranscript += event.results[i][0].transcript;
+            } else {
+              interimTranscript += event.results[i][0].transcript;
+            }
+          }
+          setUserInput(prev => prev + finalTranscript + interimTranscript);
+        };
+
+        recognitionRef.current.onerror = (event: any) => {
+          console.error('Speech recognition error', event.error);
+          let errorMessage = 'Speech recognition error.';
+          if (event.error === 'no-speech') {
+            errorMessage = 'No speech was detected. Please try again.';
+          } else if (event.error === 'audio-capture') {
+            errorMessage = 'Microphone problem. Please ensure it is enabled and working.';
+          } else if (event.error === 'not-allowed') {
+            errorMessage = 'Microphone access denied. Please enable it in your browser settings.';
+          } else if (event.error === 'network') {
+            errorMessage = 'Network error during speech recognition. Please check your internet connection.';
+          }
+          toast({
+            title: 'Mic Error',
+            description: errorMessage,
+            variant: 'destructive',
+          });
+          setIsListening(false);
+        };
+        
+        recognitionRef.current.onend = () => {
+          setIsListening(false);
+        };
+
+      } else {
+        setIsSpeechRecognitionSupported(false);
+      }
     }
-  }, []);
+  }, [toast]);
+
 
   const updateVoices = useCallback(() => {
     if (!speechSynthesisRef.current) return;
 
     const voices = speechSynthesisRef.current.getVoices();
-    if (!voices.length) return; // Voices might not be loaded yet
+    if (!voices.length) return; 
 
     const uniqueVoicesMap = new Map<string, SpeechSynthesisVoice>();
     voices.forEach(voice => {
@@ -78,7 +140,7 @@ export default function SwayamChatPage() {
     
     const allUniqueVoices = Array.from(uniqueVoicesMap.values());
     setAvailableVoices(allUniqueVoices);
-
+    
     const languageCounters: Record<string, number> = {
       en: 0,
       hi: 0,
@@ -102,6 +164,8 @@ export default function SwayamChatPage() {
       } else if (langPrefix === 'zh') {
         languageCounters.zh++;
         label = `Chinese Voice ${languageCounters.zh}`;
+      } else {
+        label = `${voice.name} (${voice.lang})`;
       }
       return { value: voice.voiceURI, label: label };
     });
@@ -112,14 +176,17 @@ export default function SwayamChatPage() {
 
   useEffect(() => {
     if (speechSynthesisRef.current) {
-      updateVoices(); // Initial load
-      speechSynthesisRef.current.onvoiceschanged = updateVoices; // Update if voices change
+      updateVoices(); 
+      speechSynthesisRef.current.onvoiceschanged = updateVoices; 
     }
 
     return () => {
       if (speechSynthesisRef.current) {
         speechSynthesisRef.current.onvoiceschanged = null;
         speechSynthesisRef.current.cancel();
+      }
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
       }
     };
   }, [updateVoices]);
@@ -128,23 +195,21 @@ export default function SwayamChatPage() {
   const speakText = useCallback((text: string) => {
     if (!isTTSEnabled || !speechSynthesisRef.current) return;
 
-    speechSynthesisRef.current.cancel(); // Cancel any previous speech
+    speechSynthesisRef.current.cancel(); 
     const utterance = new SpeechSynthesisUtterance(text);
 
     if (selectedVoiceURI && selectedVoiceURI !== 'default') {
       const voice = availableVoices.find(v => v.voiceURI === selectedVoiceURI);
       if (voice) {
         utterance.voice = voice;
-        utterance.lang = voice.lang; // Ensure lang is set from the selected voice
+        utterance.lang = voice.lang; 
       } else {
-         // Fallback: try to set a default lang if specific voice not found
         const defaultLangVoice = availableVoices.find(v => v.lang.startsWith('en')) || availableVoices[0];
         if (defaultLangVoice) {
           utterance.lang = defaultLangVoice.lang;
         }
       }
     } else {
-        // Fallback for default: try to set a default lang
         const defaultLangVoice = availableVoices.find(v => v.lang.startsWith('en')) || (availableVoices.length > 0 ? availableVoices[0] : null);
         if (defaultLangVoice) {
           utterance.lang = defaultLangVoice.lang;
@@ -172,7 +237,11 @@ export default function SwayamChatPage() {
 
   const handleSendMessage = async () => {
     if (speechSynthesisRef.current) {
-        speechSynthesisRef.current.cancel(); // Stop any ongoing speech from previous AI message
+        speechSynthesisRef.current.cancel(); 
+    }
+    if (recognitionRef.current && isListening) {
+      recognitionRef.current.stop();
+      setIsListening(false);
     }
     if (!userInput.trim()) return;
 
@@ -226,6 +295,25 @@ export default function SwayamChatPage() {
     handleSendMessage();
   };
 
+  const handleToggleListening = () => {
+    if (!isSpeechRecognitionSupported || !recognitionRef.current) {
+        toast({
+            title: 'Unsupported',
+            description: 'Speech recognition is not supported in your browser.',
+            variant: 'destructive',
+        });
+        return;
+    }
+    if (isListening) {
+      recognitionRef.current.stop();
+      setIsListening(false);
+    } else {
+      setUserInput(''); // Clear input before starting new recognition
+      recognitionRef.current.start();
+      setIsListening(true);
+    }
+  };
+
   return (
     <div className="flex h-screen max-h-screen bg-background text-foreground overflow-hidden antialiased">
       {/* Settings Panel */}
@@ -235,7 +323,7 @@ export default function SwayamChatPage() {
           <h1 className="text-3xl font-headline font-bold text-primary">InterviewBot</h1>
         </div>
         <Separator />
-        <div className="flex-grow space-y-6">
+        <div className="flex-grow space-y-6 overflow-y-auto pr-2">
           <h2 className="text-xl font-headline text-foreground flex items-center">
             <Settings size={20} className="mr-2 text-muted-foreground" />
             Chat Settings
@@ -319,6 +407,33 @@ export default function SwayamChatPage() {
                 </p>
               </div>
             )}
+            <div>
+                <Label className="text-sm font-medium text-foreground/90 flex items-center">
+                    <MicIcon size={16} className="mr-2 text-muted-foreground" />
+                    Microphone Input
+                </Label>
+                <div className="flex items-center space-x-2 mt-1.5">
+                    <span className={`text-xs px-2 py-1 rounded-md ${
+                        isListening 
+                            ? 'bg-red-500/20 text-red-700 dark:bg-red-700/30 dark:text-red-300' 
+                            : isSpeechRecognitionSupported 
+                                ? 'bg-green-500/20 text-green-700 dark:bg-green-700/30 dark:text-green-300'
+                                : 'bg-gray-500/20 text-gray-700 dark:bg-gray-700/30 dark:text-gray-300'
+                    }`}>
+                        {isListening 
+                            ? 'Listening...' 
+                            : isSpeechRecognitionSupported 
+                                ? 'Ready' 
+                                : 'Not Supported'}
+                    </span>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1.5 flex items-center">
+                   <Info size={12} className="mr-1 shrink-0" />
+                   {isSpeechRecognitionSupported 
+                       ? 'Click the mic in input field.'
+                       : 'Your browser does not support speech input.'}
+                </p>
+            </div>
           </div>
         </div>
         <div className="mt-auto pt-4 border-t border-border/50">
@@ -355,9 +470,13 @@ export default function SwayamChatPage() {
             setUserInput={setUserInput}
             onSendMessage={handleSendMessage}
             isLoading={isLoading}
+            isListening={isListening}
+            onToggleListening={handleToggleListening}
+            isSpeechRecognitionSupported={isSpeechRecognitionSupported}
           />
         </form>
       </main>
     </div>
   );
 }
+
