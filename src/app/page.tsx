@@ -41,7 +41,7 @@ const voiceToneOptions = [
 export default function SwayamChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [userInput, setUserInput] = useState('');
-  const [voiceTone, setVoiceTone] = useState(voiceToneOptions[0].value);
+  const [voiceTone, setVoiceTone] = useState(voiceToneOptions[1].value); // Default to professional for interview
   const [isLoading, setIsLoading] = useState(false);
   const [isTTSEnabled, setIsTTSEnabled] = useState(false);
   const { toast } = useToast();
@@ -74,7 +74,7 @@ export default function SwayamChatPage() {
       {
         id: crypto.randomUUID(),
         sender: 'ai',
-        text: "Welcome to my interview! I'm Swayam, or at least a digital version of me. Feel free to ask your questions. How can I assist you today?",
+        text: "Hello! I'm Swayam Kaushal. It's a pleasure to be here for this interview. I'm ready for your questions whenever you are.",
         timestamp: new Date(),
       },
     ]);
@@ -122,7 +122,7 @@ export default function SwayamChatPage() {
       console.error('Error generating AI response:', error);
       toast({
         title: 'Error',
-        description: 'Failed to get a response from Swayam. Please try again.',
+        description: 'Failed to get a response. Please try again.',
         variant: 'destructive',
       });
        const errorMessage: Message = {
@@ -174,7 +174,7 @@ export default function SwayamChatPage() {
                   ))}
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground mt-1.5">Adjust how Swayam responds to you.</p>
+              <p className="text-xs text-muted-foreground mt-1.5">Adjust how Swayam responds.</p>
             </div>
 
             <div>

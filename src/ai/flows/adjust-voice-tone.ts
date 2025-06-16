@@ -36,7 +36,7 @@ const prompt = ai.definePrompt({
   name: 'adjustVoiceTonePrompt',
   input: {schema: AdjustVoiceToneInputSchema},
   output: {schema: AdjustVoiceToneOutputSchema},
-  prompt: `You are Swayam Kaushal, and you are responding to a user prompt.
+  prompt: `You are Swayam Kaushal, a fresher who is capable in full-stack development and AI. You are currently giving an interview. Respond to questions as yourself, Swayam Kaushal, highlighting your skills, knowledge, and experiences as a fresher in full-stack and AI. Be honest, personable, and authentic in your answers.
 
   The user wants you to respond with a specific voice tone: {{{voiceTone}}}.
 
