@@ -19,13 +19,18 @@ import ChatMessage from '@/components/chat/ChatMessage';
 import ChatInput from '@/components/chat/ChatInput';
 import LoadingIndicator from '@/components/chat/LoadingIndicator';
 import { generateSwayamResponse, type GenerateSwayamResponseInput } from '@/ai/flows/generate-response';
-import { Bot, Settings, MessageSquareDashed, Volume2 } from 'lucide-react';
+import { Bot, Settings, MessageSquareDashed, Volume2, Voicemail } from 'lucide-react';
 
 type Message = {
   id: string;
   sender: 'user' | 'ai';
   text: string;
   timestamp: Date;
+};
+
+type VoiceOption = {
+  value: string; // voiceURI
+  label: string;
 };
 
 const voiceToneOptions = [
@@ -44,26 +49,110 @@ export default function SwayamChatPage() {
   const [voiceTone, setVoiceTone] = useState(voiceToneOptions[1].value); // Default to professional for interview
   const [isLoading, setIsLoading] = useState(false);
   const [isTTSEnabled, setIsTTSEnabled] = useState(false);
+  const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [selectedVoiceURI, setSelectedVoiceURI] = useState<string>('default');
+  const [voiceOptions, setVoiceOptions] = useState<VoiceOption[]>([{ value: 'default', label: 'Default (Browser)' }]);
+
   const { toast } = useToast();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const speechSynthesisRef = useRef<SpeechSynthesis | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      speechSynthesisRef.current = window.speechSynthesis;
+    }
+  }, []);
+
+  const updateVoices = useCallback(() => {
+    if (!speechSynthesisRef.current) return;
+
+    const voices = speechSynthesisRef.current.getVoices();
+    if (!voices.length) return; // Voices might not be loaded yet
+
+    const uniqueVoicesMap = new Map<string, SpeechSynthesisVoice>();
+    voices.forEach(voice => {
+      if (!uniqueVoicesMap.has(voice.voiceURI)) {
+        uniqueVoicesMap.set(voice.voiceURI, voice);
+      }
+    });
+    
+    const allUniqueVoices = Array.from(uniqueVoicesMap.values());
+    setAvailableVoices(allUniqueVoices);
+
+    const languageCounters: Record<string, number> = {
+      en: 0,
+      hi: 0,
+      es: 0,
+      zh: 0,
+    };
+
+    const formattedOptions: VoiceOption[] = allUniqueVoices.map(voice => {
+      const langPrefix = voice.lang.substring(0, 2).toLowerCase();
+      let label = `${voice.name} (${voice.lang})`;
+
+      if (langPrefix === 'en') {
+        languageCounters.en++;
+        label = `English Voice ${languageCounters.en}`;
+      } else if (langPrefix === 'hi') {
+        languageCounters.hi++;
+        label = `Hindi Voice ${languageCounters.hi}`;
+      } else if (langPrefix === 'es') {
+        languageCounters.es++;
+        label = `Spanish Voice ${languageCounters.es}`;
+      } else if (langPrefix === 'zh') {
+        languageCounters.zh++;
+        label = `Chinese Voice ${languageCounters.zh}`;
+      }
+      return { value: voice.voiceURI, label: label };
+    });
+    
+    setVoiceOptions([{ value: 'default', label: 'Default (Browser)' }, ...formattedOptions]);
+
+  }, []);
+
+  useEffect(() => {
+    if (speechSynthesisRef.current) {
+      updateVoices(); // Initial load
+      speechSynthesisRef.current.onvoiceschanged = updateVoices; // Update if voices change
+    }
+
+    return () => {
+      if (speechSynthesisRef.current) {
+        speechSynthesisRef.current.onvoiceschanged = null;
+        speechSynthesisRef.current.cancel();
+      }
+    };
+  }, [updateVoices]);
+
 
   const speakText = useCallback((text: string) => {
-    if (!isTTSEnabled) return;
+    if (!isTTSEnabled || !speechSynthesisRef.current) return;
 
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel(); // Cancel any previous speech
-      const utterance = new SpeechSynthesisUtterance(text);
-      // You could add further configuration for utterance here (e.g., voice, rate, pitch)
-      // utterance.lang = 'en-US';
-      window.speechSynthesis.speak(utterance);
+    speechSynthesisRef.current.cancel(); // Cancel any previous speech
+    const utterance = new SpeechSynthesisUtterance(text);
+
+    if (selectedVoiceURI && selectedVoiceURI !== 'default') {
+      const voice = availableVoices.find(v => v.voiceURI === selectedVoiceURI);
+      if (voice) {
+        utterance.voice = voice;
+        utterance.lang = voice.lang; // Ensure lang is set from the selected voice
+      } else {
+         // Fallback: try to set a default lang if specific voice not found
+        const defaultLangVoice = availableVoices.find(v => v.lang.startsWith('en')) || availableVoices[0];
+        if (defaultLangVoice) {
+          utterance.lang = defaultLangVoice.lang;
+        }
+      }
     } else {
-      toast({
-        title: "TTS Not Supported",
-        description: "Your browser does not support text-to-speech.",
-        variant: "destructive",
-      });
+        // Fallback for default: try to set a default lang
+        const defaultLangVoice = availableVoices.find(v => v.lang.startsWith('en')) || (availableVoices.length > 0 ? availableVoices[0] : null);
+        if (defaultLangVoice) {
+          utterance.lang = defaultLangVoice.lang;
+        }
     }
-  }, [isTTSEnabled, toast]);
+    
+    speechSynthesisRef.current.speak(utterance);
+  }, [isTTSEnabled, selectedVoiceURI, availableVoices]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -78,18 +167,12 @@ export default function SwayamChatPage() {
         timestamp: new Date(),
       },
     ]);
-    
-    return () => {
-        if ('speechSynthesis' in window) {
-            window.speechSynthesis.cancel(); // Cancel speech on component unmount
-        }
-    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleSendMessage = async () => {
-    if ('speechSynthesis' in window) {
-        window.speechSynthesis.cancel(); // Stop any ongoing speech from previous AI message
+    if (speechSynthesisRef.current) {
+        speechSynthesisRef.current.cancel(); // Stop any ongoing speech from previous AI message
     }
     if (!userInput.trim()) return;
 
@@ -149,7 +232,7 @@ export default function SwayamChatPage() {
       <aside className="w-[320px] border-r border-border p-6 flex flex-col space-y-6 bg-card shadow-lg">
         <div className="flex items-center space-x-3">
           <Bot size={32} className="text-primary" />
-          <h1 className="text-3xl font-headline font-bold text-primary">SwayamChat</h1>
+          <h1 className="text-3xl font-headline font-bold text-primary">InterviewBot</h1>
         </div>
         <Separator />
         <div className="flex-grow space-y-6">
@@ -186,7 +269,12 @@ export default function SwayamChatPage() {
                 <Switch
                   id="tts-toggle"
                   checked={isTTSEnabled}
-                  onCheckedChange={setIsTTSEnabled}
+                  onCheckedChange={(checked) => {
+                    setIsTTSEnabled(checked);
+                    if (!checked && speechSynthesisRef.current) {
+                        speechSynthesisRef.current.cancel();
+                    }
+                  }}
                   disabled={isLoading}
                   aria-label="Toggle voice reply"
                 />
@@ -198,6 +286,39 @@ export default function SwayamChatPage() {
                 Have Swayam's responses read aloud.
               </p>
             </div>
+            {isTTSEnabled && (
+              <div>
+                <Label htmlFor="select-voice" className="text-sm font-medium text-foreground/90 flex items-center">
+                  <Voicemail size={16} className="mr-2 text-muted-foreground" />
+                  Select Voice
+                </Label>
+                <Select
+                  value={selectedVoiceURI}
+                  onValueChange={setSelectedVoiceURI}
+                  disabled={isLoading || !isTTSEnabled}
+                >
+                  <SelectTrigger id="select-voice" className="w-full mt-1.5 rounded-lg shadow-sm">
+                    <SelectValue placeholder="Select voice" />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-lg max-h-[200px] overflow-y-auto">
+                    {voiceOptions.length > 0 ? (
+                      voiceOptions.map(option => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))
+                    ) : (
+                      <SelectItem value="no-voices" disabled>
+                        No voices available
+                      </SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-1.5">
+                  Choose a specific voice for replies. Availability depends on your browser.
+                </p>
+              </div>
+            )}
           </div>
         </div>
         <div className="mt-auto pt-4 border-t border-border/50">
