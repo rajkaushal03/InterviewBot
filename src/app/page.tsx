@@ -1,6 +1,7 @@
+
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -12,12 +13,13 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
+import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
 import ChatMessage from '@/components/chat/ChatMessage';
 import ChatInput from '@/components/chat/ChatInput';
 import LoadingIndicator from '@/components/chat/LoadingIndicator';
 import { generateSwayamResponse, type GenerateSwayamResponseInput } from '@/ai/flows/generate-response';
-import { Bot, Settings, MessageSquareDashed } from 'lucide-react';
+import { Bot, Settings, MessageSquareDashed, Volume2 } from 'lucide-react';
 
 type Message = {
   id: string;
@@ -41,8 +43,27 @@ export default function SwayamChatPage() {
   const [userInput, setUserInput] = useState('');
   const [voiceTone, setVoiceTone] = useState(voiceToneOptions[0].value);
   const [isLoading, setIsLoading] = useState(false);
+  const [isTTSEnabled, setIsTTSEnabled] = useState(false);
   const { toast } = useToast();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const speakText = useCallback((text: string) => {
+    if (!isTTSEnabled) return;
+
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel(); // Cancel any previous speech
+      const utterance = new SpeechSynthesisUtterance(text);
+      // You could add further configuration for utterance here (e.g., voice, rate, pitch)
+      // utterance.lang = 'en-US';
+      window.speechSynthesis.speak(utterance);
+    } else {
+      toast({
+        title: "TTS Not Supported",
+        description: "Your browser does not support text-to-speech.",
+        variant: "destructive",
+      });
+    }
+  }, [isTTSEnabled, toast]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -53,13 +74,23 @@ export default function SwayamChatPage() {
       {
         id: crypto.randomUUID(),
         sender: 'ai',
-        text: "Hello! I'm Swayam, or at least a digital version of me. Ask me anything, or let's just chat. How can I assist you today?",
+        text: "Welcome to my interview! I'm Swayam, or at least a digital version of me. Feel free to ask your questions. How can I assist you today?",
         timestamp: new Date(),
       },
     ]);
+    
+    return () => {
+        if ('speechSynthesis' in window) {
+            window.speechSynthesis.cancel(); // Cancel speech on component unmount
+        }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleSendMessage = async () => {
+    if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel(); // Stop any ongoing speech from previous AI message
+    }
     if (!userInput.trim()) return;
 
     const userMessage: Message = {
@@ -86,6 +117,7 @@ export default function SwayamChatPage() {
         timestamp: new Date(),
       };
       setMessages(prevMessages => [...prevMessages, aiMessage]);
+      speakText(aiResponse.response);
     } catch (error) {
       console.error('Error generating AI response:', error);
       toast({
@@ -93,7 +125,6 @@ export default function SwayamChatPage() {
         description: 'Failed to get a response from Swayam. Please try again.',
         variant: 'destructive',
       });
-      // Optionally add a message to chat indicating error
        const errorMessage: Message = {
         id: crypto.randomUUID(),
         sender: 'ai',
@@ -101,6 +132,7 @@ export default function SwayamChatPage() {
         timestamp: new Date(),
       };
       setMessages(prevMessages => [...prevMessages, errorMessage]);
+      speakText(errorMessage.text);
     } finally {
       setIsLoading(false);
     }
@@ -111,7 +143,6 @@ export default function SwayamChatPage() {
     handleSendMessage();
   };
 
-
   return (
     <div className="flex h-screen max-h-screen bg-background text-foreground overflow-hidden antialiased">
       {/* Settings Panel */}
@@ -121,8 +152,8 @@ export default function SwayamChatPage() {
           <h1 className="text-3xl font-headline font-bold text-primary">SwayamChat</h1>
         </div>
         <Separator />
-        <div className="flex-grow">
-          <h2 className="text-xl font-headline mb-3 text-foreground flex items-center">
+        <div className="flex-grow space-y-6">
+          <h2 className="text-xl font-headline text-foreground flex items-center">
             <Settings size={20} className="mr-2 text-muted-foreground" />
             Chat Settings
           </h2>
@@ -145,7 +176,28 @@ export default function SwayamChatPage() {
               </Select>
               <p className="text-xs text-muted-foreground mt-1.5">Adjust how Swayam responds to you.</p>
             </div>
-            {/* Future settings can go here */}
+
+            <div>
+              <Label htmlFor="tts-toggle" className="text-sm font-medium text-foreground/90 flex items-center">
+                <Volume2 size={16} className="mr-2 text-muted-foreground" />
+                Voice Reply
+              </Label>
+              <div className="flex items-center space-x-2 mt-1.5">
+                <Switch
+                  id="tts-toggle"
+                  checked={isTTSEnabled}
+                  onCheckedChange={setIsTTSEnabled}
+                  disabled={isLoading}
+                  aria-label="Toggle voice reply"
+                />
+                <span className="text-xs text-muted-foreground">
+                  {isTTSEnabled ? 'Enabled' : 'Disabled'}
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1.5">
+                Have Swayam's responses read aloud.
+              </p>
+            </div>
           </div>
         </div>
         <div className="mt-auto pt-4 border-t border-border/50">
